@@ -71,14 +71,14 @@ class BioHyperGLOW(nn.Module):
         # Register prior log memberships as a persistent buffer
         self.register_buffer("log_b0", torch.from_numpy(np.log(b0_arr)))
 
-        # Gene membership logits theta
-        requires_grad_theta = mode not in ("activity", "frozen")
+        # Gene membership logits theta (trainable in all modes except 'activity')
+        requires_grad_theta = mode != "activity"
         self.theta = nn.Parameter(
             torch.as_tensor(gene_arr, dtype=torch.float32).clone(),
             requires_grad=requires_grad_theta,
         )
 
-        # Disease membership residual delta
+        # Disease membership residual delta (trainable only in 'learned' and 'free' modes; frozen at 0 in 'frozen' and 'activity')
         requires_grad_delta = mode in ("learned", "free")
         self.delta = nn.Parameter(
             torch.zeros(nd, h, dtype=torch.float32),

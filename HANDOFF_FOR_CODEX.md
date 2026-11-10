@@ -108,9 +108,35 @@ release/BioHyperGLOW/
 
 ---
 
-## 4. Scientific Equivalence Evidence
+## 4. Scientific Equivalence & Review Findings Resolution
 
-The test file `tests/test_scientific_equivalence.py` verifies exact numerical agreement between packaged functions and original research implementations from `ranking_development/` and `outputs/dual_space_followup_seed42/frozen_protocol.json`:
+Following peer review against the research workspace (report `reports/package_review_2026-11-10.md`), five specific findings were investigated and resolved with dedicated unit tests:
+
+1. **Finding 1 (P1) - Negative Sampling Exclusions**:
+   - `train_single_branch` previously excluded only training positives when drawing negative training pairs.
+   - Now explicitly receives `all_positive` (training + validation + test positives) and `exclude_negatives` (held-out validation and test negatives).
+   - Training negative sampling is guaranteed strictly disjoint from all known positives and evaluation pairs. Tested by `test_training_negative_sampler_exclusions`.
+
+2. **Finding 2 (P1) - Saved-Protocol Reproduction & Paired Minibatch Streams**:
+   - Added support for loading research split files (`splits.json`) via `load_splits_json(path)` and validation via `check_split(fold, all_edges)`.
+   - Exposed `--splits`, `--fold`, and `--preset {paper,demo}` on `biohyperglow train` CLI and `train_dual_space`.
+   - Fold-adjusted random seed schedule strictly adheres to the research convention: `training_seed = base_seed + 1009 * (fold - 1)`.
+   - Mini-batch negative sampling passes the exact same RNG seed to both `semantic` and `free` branches, reproducing paired mini-batch sequences. Tested by `test_paired_minibatch_stream_and_training_step_equivalence` and `test_train_dual_space_saved_splits_and_fold`.
+
+3. **Finding 3 (P2) - Frozen Mode Parameter Freezing**:
+   - Fixed parameter freeze behavior in `src/biohyperglow/model.py`: in `frozen` mode, `delta.requires_grad = False` (disease residual frozen at 0), while `theta.requires_grad = True` (gene logit remaining trainable), matching `code/model_v1.py` and Table 1 ablation definitions. Tested by `test_frozen_and_activity_mode_parameter_freezing`.
+
+4. **Finding 4 (P2) - Probability Decoding Across Dynamic Range**:
+   - Replaced artificial clipping `[-30, 30]` in `rate_to_probability` with upper-only clipping (`np.clip(arr, None, 30.0)`).
+   - Predictions and explanations now agree down to machine precision across the entire dynamic range ($p \approx 2 \times 10^{-15}$). Tested by `test_probability_consistency_across_dynamic_range`.
+
+5. **Finding 5 (P2) - Setuptools Version Requirement**:
+   - Raised build-backend requirement in `pyproject.toml` to `setuptools>=77.0.0` to support modern PEP 621 license string format (`license = "MIT"` and `license-files = ["LICENSE"]`).
+
+6. **Release Workflow Verification**:
+   - Added automated unit test execution and installed wheel smoke test to `.github/workflows/release.yml` prior to publishing.
+
+### Verification Matrix
 
 | Component | Test Case | Research Reference | Packaged Target | Tolerance / Result |
 |---|---|---|---|---|
@@ -119,6 +145,9 @@ The test file `tests/test_scientific_equivalence.py` verifies exact numerical ag
 | **Intensity Mixture** | `test_intensity_mixture_equivalence` | `score_screen.mix_intensities` | `mix_intensities` | Exact (`atol=1e-15`) |
 | **Proposition 1** | `test_proposition1_normalized_concatenation_reconstruction` | `dual_space.normalized_path_check` | `normalized_concatenation_check` | `error <= 1e-12` |
 | **Explanation Sum** | `test_explanation_exact_additive_reconstruction` | `cancer_case_study/manuscript_analysis.py` | `explain_association` | `error < 1e-12` |
+| **Dynamic Range Consistency** | `test_probability_consistency_across_dynamic_range` | `dual_space.py` vs `explanation.py` | `intensity_to_probability` | Exact (`atol=1e-15`) |
+| **Negative Exclusions** | `test_training_negative_sampler_exclusions` | Training sampler | `sample_negative_edges` | Disjoint sets verified |
+| **Paired Stream Parity** | `test_paired_minibatch_stream_and_training_step_equivalence` | `train_single_branch` seed schedule | Dual-branch SGD step | Exact gradient/weight parity |
 | **Checkpoint Round-Trip** | `test_checkpoint_roundtrip_and_order_invariance` | `.npz` archive serialization | `BioHyperGLOWModel.save / load` | Exact (`atol=1e-15`) |
 
 ---
@@ -128,21 +157,23 @@ The test file `tests/test_scientific_equivalence.py` verifies exact numerical ag
 1. **Test Suite**:
    ```bash
    pytest -v
-   # Result: 23 passed in 1.07s on CPU
+   # Result: 29 passed in 0.86s on CPU
    ```
 2. **Distribution Artifacts**:
-   - `dist/biohyperglow-0.1.0-py3-none-any.whl` (pure Python wheel)
-   - `dist/biohyperglow-0.1.0.tar.gz` (clean sdist)
+   - `dist/biohyperglow-0.1.0-py3-none-any.whl`
+     - SHA-256: `b7f9005125f66ae65372dbb559743e4d05ef2f150c615769969065bba7b7724d`
+   - `dist/biohyperglow-0.1.0.tar.gz`
+     - SHA-256: `d48c0aa667e5c9c561a031ae39a84fb0b34975748dff107ef02f16a45d8a289f`
 3. **Twine Validation**:
    ```bash
-   python -m twine check dist/*
+   python -m twine check --strict dist/*
    # Result: Checking dist/biohyperglow-0.1.0-py3-none-any.whl: PASSED
    #         Checking dist/biohyperglow-0.1.0.tar.gz: PASSED
    ```
 4. **Clean Virtual Environment Verification**:
-   - Wheel installed into a fresh, isolated virtualenv outside the research workspace.
-   - Verified that `biohyperglow demo` executed end-to-end, trained a model, produced predictions, and generated intrinsic explanations.
-   - All 23 tests executed and passed against the installed wheel outside the checkout.
+   - Wheel installed into a fresh, isolated virtualenv outside the checkout and workspace (`/tmp/test_biohyperglow_venv`).
+   - `biohyperglow demo` executed end-to-end, trained dual-space model, produced predictions, and verified Proposition 1 explanation reconstruction error ($2.22 \times 10^{-16}$).
+   - All 29 unit tests passed against the installed wheel without `src` on the import path.
 
 ---
 

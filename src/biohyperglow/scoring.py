@@ -7,22 +7,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
-from biohyperglow.dual_space import branch_scores, compute_gate, mix_intensities
-from biohyperglow.explanation import ExplanationResult, explain_association
-
-
-def rate_to_probability(log_rate: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
-    """Convert log association intensity to marginal probability via the Bernoulli-Poisson link.
-
-    p = 1 - exp(-exp(log_rate)) = -expm1(-exp(log_rate))
-    """
-    arr = np.asarray(log_rate, dtype=float)
-    # Clip to avoid overflow/underflow
-    rate = np.exp(np.clip(arr, -30.0, 30.0))
-    prob = -np.expm1(-rate)
-    if isinstance(log_rate, (float, int)):
-        return float(prob)
-    return prob
+from biohyperglow.dual_space import (
+    branch_scores,
+    compute_gate,
+    intensity_to_probability,
+    mix_intensities,
+    rate_to_probability,
+)
 
 
 class BioHyperGLOWModel:
@@ -62,6 +53,7 @@ class BioHyperGLOWModel:
         degrees: Sequence[int],
         kappa: float = 10.0,
         threshold: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.diseases = [str(d) for d in diseases]
         self.genes = [str(g) for g in genes]
@@ -72,6 +64,7 @@ class BioHyperGLOWModel:
         self.degrees = np.asarray(degrees, dtype=int)
         self.kappa = float(kappa)
         self.threshold = float(threshold) if threshold is not None else None
+        self.metadata = dict(metadata or {})
 
         self.alpha = compute_gate(self.mapped, self.degrees, self.kappa)
 
@@ -266,8 +259,9 @@ class BioHyperGLOWModel:
         disease: str,
         gene: str,
         top_k: Optional[int] = None,
-    ) -> ExplanationResult:
+    ):
         """Explain the predicted link strength for a disease-gene pair."""
+        from biohyperglow.explanation import explain_association
         return explain_association(self, disease, gene, top_k=top_k)
 
     def save(self, path: Union[str, Path]) -> None:
@@ -282,6 +276,7 @@ class BioHyperGLOWModel:
             "threshold": self.threshold,
             "group_ids": self.semantic["group_ids"],
             "group_labels": self.semantic["group_labels"],
+            **self.metadata,
         }
 
         np.savez_compressed(
@@ -339,6 +334,7 @@ class BioHyperGLOWModel:
                 degrees=degrees,
                 kappa=kappa,
                 threshold=threshold,
+                metadata=meta,
             )
 
     @classmethod

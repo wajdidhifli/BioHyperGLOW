@@ -63,3 +63,55 @@ def test_train_dual_space_short_workflow(synthetic_data, tmp_path):
     assert loaded.diseases == model.diseases
     assert loaded.genes == model.genes
     assert loaded.threshold == pytest.approx(model.threshold)
+    assert loaded.metadata["fold"] == 1
+    assert loaded.metadata["training_seed"] == 42
+
+
+def test_train_dual_space_saved_splits_and_fold(synthetic_data, tmp_path):
+    edges_path, ontology_path = synthetic_data
+    from biohyperglow.data import load_edges_csv, train_val_test_split
+    import json
+
+    edges, ds, gs, _ = load_edges_csv(edges_path)
+    splits = train_val_test_split(edges, len(ds), len(gs), seed=42, folds=3, val_frac=0.2)
+
+    splits_file = tmp_path / "splits.json"
+    splits_file.write_text(json.dumps({
+        "meta": {"n_d": len(ds), "n_g": len(gs), "folds": 3},
+        "splits": [{k: v.tolist() for k, v in f.items()} for f in splits]
+    }))
+
+    # Train on fold 2 using saved split
+    model = train_dual_space(
+        edges_csv=edges_path,
+        ontology_obo=ontology_path,
+        splits=splits_file,
+        fold=2,
+        H=4,
+        epochs=3,
+        eval_every=1,
+        patience=3,
+        batch_size=16,
+        base_seed=42,
+    )
+
+    assert model.metadata["fold"] == 2
+    assert model.metadata["training_seed"] == 42 + 1009 * (2 - 1)  # 1051
+    assert model.metadata["base_seed"] == 42
+
+
+def test_invalid_split_detection(synthetic_data):
+    edges_path, _ = synthetic_data
+    from biohyperglow.data import check_split
+
+    all_edges = np.array([[0, 0], [0, 1], [1, 2], [2, 3]])
+    # Leaky split where train and val positive overlap
+    leaky_fold = {
+        "train_pos": np.array([[0, 0], [0, 1]]),
+        "val_pos": np.array([[0, 1], [1, 2]]),
+        "val_neg": np.array([[1, 0]]),
+    }
+
+    with pytest.raises(ValueError, match="disjoint"):
+        check_split(leaky_fold, all_edges)
+

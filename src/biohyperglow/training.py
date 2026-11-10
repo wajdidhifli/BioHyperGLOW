@@ -2,13 +2,20 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 import torch
 from torch import nn
 
-from biohyperglow.data import load_edges_csv, negative_pairs, train_val_test_split
+from biohyperglow.data import (
+    check_split,
+    load_edges_csv,
+    load_splits_json,
+    negative_pairs,
+    train_val_test_split,
+)
 from biohyperglow.dual_space import compute_gate, mix_intensities
 from biohyperglow.metrics import pair_metrics, select_threshold
 from biohyperglow.model import BioHyperGLOW
@@ -82,6 +89,8 @@ def train_single_branch(
     val_labels: np.ndarray,
     n_diseases: int,
     n_genes: int,
+    all_positive: Optional[Set[Tuple[int, int]]] = None,
+    exclude_negatives: Optional[Set[Tuple[int, int]]] = None,
     target: Optional[np.ndarray] = None,
     assigned_mask: Optional[np.ndarray] = None,
     epochs: int = 100,
@@ -89,6 +98,7 @@ def train_single_branch(
     batch_size: int = 1024,
     eval_every: int = 5,
     patience: int = 20,
+    min_delta: float = 1e-5,
     lr: float = 0.003,
     lambda_profile: float = 0.1,
     lambda_ontology: float = 0.1,
@@ -97,7 +107,17 @@ def train_single_branch(
     seed: int = 42,
     progress: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], BioHyperGLOW, Dict[str, Any]]:
-    """Train a single BioHyperGLOW branch (semantic or free) with validation early stopping."""
+    """Train a single BioHyperGLOW branch (semantic or free) with validation early stopping.
+
+    Parameters
+    ----------
+    all_positive : set of (int, int), optional
+        Complete set of known benchmark positives. Must be excluded from negative sampling
+        to uphold the closed-world assumption (preventing held-out positives from being used
+        as training negatives).
+    exclude_negatives : set of (int, int), optional
+        Fixed negative pairs from validation or test partitions to exclude from training.
+    """
     torch.manual_seed(seed)
     dev = torch.device(device)
 
@@ -115,13 +135,15 @@ def train_single_branch(
         weight_decay=0.0,
     )
 
-    stopping = EarlyStopping(patience=patience, min_delta=1e-5)
+    stopping = EarlyStopping(patience=patience, min_delta=min_delta)
     rng = np.random.default_rng(seed)
 
     target_t = torch.from_numpy(target).to(dev) if target is not None else None
     mask_t = torch.as_tensor(assigned_mask, device=dev) if assigned_mask is not None else None
 
-    all_train_pos = set(map(tuple, train_pos.tolist()))
+    # Uphold closed-world assumption: exclude all known positives and held-out negatives
+    forbidden_positives = all_positive if all_positive is not None else set(map(tuple, train_pos.tolist()))
+
     best_ap = -1.0
     best_epoch = 0
     best_state = None
@@ -136,7 +158,14 @@ def train_single_branch(
             # Sample positive training edges
             n_pos = min(batch_size, len(train_pos))
             pos_batch = train_pos[rng.integers(0, len(train_pos), size=n_pos)]
-            neg_batch = negative_pairs(n_diseases, n_genes, all_train_pos, n_pos, rng)
+            neg_batch = negative_pairs(
+                n_diseases,
+                n_genes,
+                forbidden_positives,
+                len(pos_batch),
+                rng,
+                exclude=exclude_negatives,
+            )
 
             pairs = np.concatenate([pos_batch, neg_batch])
             y = torch.cat([
@@ -223,18 +252,26 @@ def train_single_branch(
 def train_dual_space(
     edges_csv: Union[str, Path],
     ontology_obo: Optional[Union[str, Path]] = None,
+    splits: Optional[Union[str, Path, Dict[str, Any], List[Dict[str, Any]]]] = None,
+    fold: int = 1,
+    preset: Optional[str] = None,
     H: int = 512,
     kappa: float = 10.0,
     epochs: int = 200,
+    steps_per_epoch: int = 24,
     eval_every: int = 5,
     patience: int = 30,
+    min_delta: float = 1e-5,
     batch_size: int = 1024,
     lr: float = 0.003,
     lambda_profile: float = 0.1,
     lambda_ontology: float = 0.1,
+    scale_l2: float = 1e-5,
     device: str = "cpu",
-    seed: int = 42,
+    seed: Optional[int] = None,
+    base_seed: int = 42,
     val_frac: float = 0.1,
+    num_folds: int = 5,
     progress: Optional[Callable[[str], None]] = None,
 ) -> BioHyperGLOWModel:
     """Train complete BioHyperGLOW dual-space model from association network and ontology.
@@ -245,20 +282,34 @@ def train_dual_space(
         Path to CSV file with 'disease' and 'gene' columns.
     ontology_obo : str or Path, optional
         Path to MONDO ontology .obo file.
+    splits : str, Path, dict, or list of dict, optional
+        Precomputed CV splits. If None, generated automatically.
+    fold : int, default=1
+        1-based fold index to train on.
+    preset : {'paper', 'demo'}, optional
+        Preset configuration. 'paper' reproduces publication benchmark settings (5000 epochs,
+        patience 50, batch size 1024). 'demo' configures a fast lightweight run.
     H : int, default=512
         Coordinate dimension for each branch.
     kappa : float, default=10.0
         Degree-gate scale parameter.
     epochs : int, default=200
+    steps_per_epoch : int, default=24
     eval_every : int, default=5
     patience : int, default=30
+    min_delta : float, default=1e-5
     batch_size : int, default=1024
     lr : float, default=0.003
     lambda_profile : float, default=0.1
     lambda_ontology : float, default=0.1
+    scale_l2 : float, default=1e-5
     device : str, default='cpu'
-    seed : int, default=42
+    seed : int, optional
+        Alias for base_seed for backward compatibility.
+    base_seed : int, default=42
+        Base seed for fold-adjusted training seed convention (base_seed + 1009 * (fold - 1)).
     val_frac : float, default=0.1
+    num_folds : int, default=5
     progress : callable, optional
 
     Returns
@@ -266,24 +317,85 @@ def train_dual_space(
     model : BioHyperGLOWModel
         Fitted dual-space model ready for prediction and explanation.
     """
-    edges, diseases, genes, _ = load_edges_csv(edges_csv)
+    if seed is not None:
+        base_seed = seed
+    if preset == "paper":
+        epochs = 5000
+        steps_per_epoch = 24
+        eval_every = 5
+        patience = 50
+        min_delta = 1e-5
+        batch_size = 1024
+        lr = 0.003
+        lambda_profile = 0.1
+        lambda_ontology = 0.1
+        scale_l2 = 1e-5
+        H = 512
+        kappa = 10.0
+    elif preset == "demo":
+        epochs = 30
+        steps_per_epoch = 12
+        eval_every = 5
+        patience = 10
+        min_delta = 1e-5
+        batch_size = 128
+        H = 8
+        kappa = 10.0
+    elif preset is not None:
+        raise ValueError(f"Unknown preset '{preset}'; expected 'paper', 'demo', or None")
+
+    edges, diseases, genes, edge_hash = load_edges_csv(edges_csv)
     n_d = len(diseases)
     n_g = len(genes)
+    all_positive = set(map(tuple, edges.tolist()))
 
     if progress:
-        progress(f"Loaded {len(edges)} associations across {n_d} diseases and {n_g} genes")
+        progress(f"Loaded {len(edges)} associations across {n_d} diseases and {n_g} genes (SHA-256: {edge_hash[:10]}...)")
 
-    # Generate leakage-safe train/val split
-    splits = train_val_test_split(edges, n_d, n_g, seed=seed, folds=5, val_frac=val_frac)
-    fold0 = splits[0]
-    train_pos = fold0["train_pos"]
-    val_pos = fold0["val_pos"]
-    val_neg = fold0["val_neg"]
+    # Load or generate leakage-safe splits
+    if splits is not None:
+        if isinstance(splits, (str, Path)):
+            split_list = load_splits_json(splits)
+        elif isinstance(splits, dict) and "splits" in splits:
+            split_list = [
+                {k: np.asarray(v, dtype=np.int64).reshape(-1, 2) for k, v in f.items() if isinstance(v, (list, np.ndarray))}
+                for f in splits["splits"]
+            ]
+        elif isinstance(splits, list):
+            split_list = [
+                {k: np.asarray(v, dtype=np.int64).reshape(-1, 2) for k, v in f.items() if isinstance(v, (list, np.ndarray))}
+                for f in splits
+            ]
+        else:
+            raise ValueError(f"Unsupported splits input type: {type(splits)}")
+
+        if not (1 <= fold <= len(split_list)):
+            raise ValueError(f"Requested fold={fold}, but splits contains {len(split_list)} folds")
+        fold_data = split_list[fold - 1]
+        check_split(fold_data, edges)
+    else:
+        split_list = train_val_test_split(edges, n_d, n_g, seed=base_seed, folds=num_folds, val_frac=val_frac)
+        fold_data = split_list[fold - 1]
+        check_split(fold_data, edges)
+
+    train_pos = fold_data["train_pos"]
+    val_pos = fold_data["val_pos"]
+    val_neg = fold_data["val_neg"]
+    test_neg = fold_data.get("test_neg", None)
+
+    # Exclude both validation and test negatives from training negative sampling
+    exclude_negatives = set(map(tuple, val_neg.tolist()))
+    if test_neg is not None and len(test_neg) > 0:
+        exclude_negatives.update(set(map(tuple, test_neg.tolist())))
+
     val_pairs = np.concatenate([val_pos, val_neg])
     val_labels = np.r_[np.ones(len(val_pos), dtype=int), np.zeros(len(val_neg), dtype=int)]
 
     # Compute training degree for each disease
     degrees = np.bincount(train_pos[:, 0], minlength=n_d)
+
+    # Training seed convention: base_seed + 1009 * (fold - 1)
+    training_seed = base_seed + 1009 * (fold - 1)
 
     # 1. Prepare Semantic Branch Inputs
     group_ids: List[str] = []
@@ -310,9 +422,9 @@ def train_dual_space(
         initial_theta_sem = np.zeros((n_g, H), dtype=np.float32)
         t0 = None
 
-    # 2. Train Semantic Branch
+    # 2. Train Semantic Branch (paired training seed)
     if progress:
-        progress("Starting Semantic Branch optimization...")
+        progress(f"Starting Semantic Branch optimization (seed={training_seed})...")
     sem_branch, _, sem_info = train_single_branch(
         mode="learned" if ontology_obo is not None else "free",
         h_dim=H,
@@ -323,27 +435,32 @@ def train_dual_space(
         val_labels=val_labels,
         n_diseases=n_d,
         n_genes=n_g,
+        all_positive=all_positive,
+        exclude_negatives=exclude_negatives,
         target=t0,
         assigned_mask=mapped,
         epochs=epochs,
+        steps_per_epoch=steps_per_epoch,
         eval_every=eval_every,
         patience=patience,
+        min_delta=min_delta,
         batch_size=batch_size,
         lr=lr,
         lambda_profile=lambda_profile,
         lambda_ontology=lambda_ontology,
+        scale_l2=scale_l2,
         device=device,
-        seed=seed,
+        seed=training_seed,
         progress=progress,
     )
     sem_branch["group_ids"] = group_ids
     sem_branch["group_labels"] = group_labels
 
-    # 3. Train Free (Association-Only) Branch
+    # 3. Train Free (Association-Only) Branch (paired training seed)
     if progress:
-        progress("Starting Free (Association-Only) Branch optimization...")
+        progress(f"Starting Free (Association-Only) Branch optimization (seed={training_seed})...")
     b0_free = np.full((n_d, H), 1.0 / H, dtype=np.float32)
-    rng_free = np.random.default_rng(seed + 99991)
+    rng_free = np.random.default_rng(training_seed + 99991)
     initial_theta_free = rng_free.normal(0.0, 0.1, (n_g, H)).astype(np.float32)
 
     free_branch, _, free_info = train_single_branch(
@@ -356,14 +473,19 @@ def train_dual_space(
         val_labels=val_labels,
         n_diseases=n_d,
         n_genes=n_g,
+        all_positive=all_positive,
+        exclude_negatives=exclude_negatives,
         target=None,
         epochs=epochs,
+        steps_per_epoch=steps_per_epoch,
         eval_every=eval_every,
         patience=patience,
+        min_delta=min_delta,
         batch_size=batch_size,
         lr=lr,
+        scale_l2=scale_l2,
         device=device,
-        seed=seed + 1,
+        seed=training_seed,
         progress=progress,
     )
 
@@ -390,6 +512,23 @@ def train_dual_space(
             f"F1: {val_metrics['F1']:.4f} (threshold={best_threshold:.4f})"
         )
 
+    meta = {
+        "base_seed": base_seed,
+        "fold": fold,
+        "training_seed": training_seed,
+        "edges_sha256": edge_hash,
+        "preset": preset,
+        "epochs": epochs,
+        "steps_per_epoch": steps_per_epoch,
+        "batch_size": batch_size,
+        "patience": patience,
+        "min_delta": min_delta,
+        "lr": lr,
+        "lambda_profile": lambda_profile,
+        "lambda_ontology": lambda_ontology,
+        "scale_l2": scale_l2,
+    }
+
     model = BioHyperGLOWModel(
         semantic=sem_branch,
         free=free_branch,
@@ -399,6 +538,7 @@ def train_dual_space(
         degrees=degrees,
         kappa=kappa,
         threshold=best_threshold,
+        metadata=meta,
     )
 
     return model

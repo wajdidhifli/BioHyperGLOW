@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import json
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
@@ -166,6 +167,67 @@ def train_val_test_split(
         })
 
     return results
+
+
+def check_split(fold: Dict[str, np.ndarray], all_edges: np.ndarray) -> None:
+    """Validate that a fold partition satisfies strict closed-world leakage-safe constraints.
+
+    Checks:
+    1. Positive sets (train, val, test) are pairwise disjoint and partition all positive edges.
+    2. Negative sets (val, test) are disjoint from all known positives.
+    3. Validation and test negatives are disjoint from each other.
+    """
+    all_pos = set(map(tuple, all_edges.tolist()))
+    tr = set(map(tuple, fold["train_pos"].tolist()))
+    va = set(map(tuple, fold["val_pos"].tolist()))
+    te = (
+        set(map(tuple, fold["test_pos"].tolist()))
+        if "test_pos" in fold and len(fold["test_pos"])
+        else set()
+    )
+
+    if te:
+        if tr & va or tr & te or va & te:
+            raise ValueError("Train, val, and test positive sets must be pairwise disjoint")
+        if (tr | va | te) != all_pos:
+            raise ValueError("Train, val, and test positive sets must partition all known positive associations")
+    else:
+        if tr & va:
+            raise ValueError("Train and validation positive sets must be disjoint")
+        if (tr | va) != all_pos:
+            raise ValueError("Train and validation positive sets must partition all known positive associations")
+
+    vn = set(map(tuple, fold["val_neg"].tolist()))
+    tn = (
+        set(map(tuple, fold["test_neg"].tolist()))
+        if "test_neg" in fold and len(fold["test_neg"])
+        else set()
+    )
+    if (vn | tn) & all_pos:
+        raise ValueError("Validation or test negative pairs overlap with known positive associations")
+    if tn and (vn & tn):
+        raise ValueError("Validation and test negative sets must be disjoint")
+
+
+def load_splits_json(path: Union[str, Path]) -> List[Dict[str, np.ndarray]]:
+    """Load precomputed CV splits from a JSON file.
+
+    Compatible with publication split format containing 'splits' list or raw list of fold dicts.
+    """
+    p = Path(path)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    raw_splits = data["splits"] if isinstance(data, dict) and "splits" in data else data
+    if not isinstance(raw_splits, list):
+        raise ValueError(f"Invalid split file {path}: expected a list of folds under 'splits' or root")
+
+    converted = []
+    for f in raw_splits:
+        converted.append({
+            k: np.asarray(v, dtype=np.int64).reshape(-1, 2)
+            for k, v in f.items()
+            if isinstance(v, (list, np.ndarray))
+        })
+    return converted
 
 
 def generate_synthetic_dataset(

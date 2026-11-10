@@ -18,7 +18,7 @@ Semantic coordinates reflect concept clusters derived from the disease ontology 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional, Union
+from biohyperglow.dual_space import intensity_to_probability, rate_to_probability
 
 import numpy as np
 
@@ -165,7 +165,7 @@ def explain_association(
 
     # Guard against zero intensity for division
     safe_tot = total_intensity if total_intensity > 0 else 1.0
-    decoded_prob = float(-np.expm1(-total_intensity))
+    decoded_prob = float(intensity_to_probability(total_intensity))
     log_int = float(np.log(np.maximum(total_intensity, np.finfo(float).tiny)))
 
     # Cross-verify against normalized concatenation (Proposition 1)

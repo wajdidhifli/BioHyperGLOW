@@ -14,6 +14,35 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 
 
+def intensity_to_probability(intensity: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    """Convert Poisson association intensity lambda >= 0 to Bernoulli probability:
+
+    p = 1 - exp(-lambda) = -expm1(-lambda).
+
+    Upper-bounded at lambda=100.0 to prevent overflow without imposing any artificial lower floor.
+    """
+    arr = np.asarray(intensity, dtype=float)
+    safe_rate = np.clip(arr, 0.0, 100.0)
+    prob = -np.expm1(-safe_rate)
+    if isinstance(intensity, (float, int)):
+        return float(prob)
+    return prob
+
+
+def rate_to_probability(log_rate: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+    """Convert log association intensity log(lambda) to marginal probability via the Bernoulli-Poisson link:
+
+    p = 1 - exp(-exp(log_rate)) = -expm1(-exp(log_rate)).
+
+    Upper-bounded at log_rate=50.0 (where 1 - exp(-lambda) == 1.0 within float64 resolution)
+    without clipping below, preserving exact small-probability behavior.
+    """
+    arr = np.asarray(log_rate, dtype=float)
+    safe_log = np.minimum(arr, 50.0)
+    rate = np.exp(safe_log)
+    return intensity_to_probability(rate)
+
+
 def compute_gate(
     mapped: Union[np.ndarray, list],
     degree: Union[np.ndarray, list],

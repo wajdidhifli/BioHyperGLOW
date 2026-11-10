@@ -31,15 +31,20 @@ def _build_parser() -> argparse.ArgumentParser:
     p_train.add_argument("--edges", required=True, help="Path to disease-gene association CSV")
     p_train.add_argument("--ontology", help="Path to MONDO ontology .obo file")
     p_train.add_argument("--out", required=True, help="Output path for trained model (.npz)")
+    p_train.add_argument("--splits", help="Optional path to precomputed splits JSON")
+    p_train.add_argument("--fold", type=int, default=1, help="1-based fold index (default: 1)")
+    p_train.add_argument("--preset", choices=["paper", "demo"], help="Preset configuration ('paper' for publication benchmark, 'demo' for fast smoke run)")
     p_train.add_argument("--H", type=int, default=512, help="Coordinates per branch (default: 512)")
     p_train.add_argument("--kappa", type=float, default=10.0, help="Degree-gate parameter kappa (default: 10.0)")
     p_train.add_argument("--epochs", type=int, default=200, help="Maximum epochs per branch (default: 200)")
+    p_train.add_argument("--steps-per-epoch", type=int, default=24, help="Minibatch steps per epoch (default: 24)")
     p_train.add_argument("--eval-every", type=int, default=5, help="Validation frequency (default: 5)")
     p_train.add_argument("--patience", type=int, default=30, help="Patience for early stopping (default: 30)")
+    p_train.add_argument("--min-delta", type=float, default=1e-5, help="Minimum AP delta for early stopping (default: 1e-5)")
     p_train.add_argument("--batch-size", type=int, default=1024, help="Minibatch size (default: 1024)")
     p_train.add_argument("--lr", type=float, default=0.003, help="Learning rate (default: 0.003)")
     p_train.add_argument("--device", choices=["cpu", "cuda", "mps"], default="cpu", help="Compute device (default: cpu)")
-    p_train.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    p_train.add_argument("--seed", type=int, default=42, help="Random base seed (default: 42)")
 
     # 2. predict
     p_predict = subparsers.add_parser("predict", help="Predict association scores for pairs")
@@ -74,20 +79,28 @@ def cmd_train(args: argparse.Namespace) -> int:
     print(f"BioHyperGLOW {__version__} - Training Dual-Space Model")
     print(f"Edges: {args.edges}")
     print(f"Ontology: {args.ontology or 'None (free association-only branch)'}")
+    print(f"Splits: {args.splits or 'Generated automatically'}, Fold: {args.fold}")
+    if args.preset:
+        print(f"Preset: {args.preset}")
     print(f"H={args.H}, kappa={args.kappa}, device={args.device}")
 
     model = train_dual_space(
         edges_csv=args.edges,
         ontology_obo=args.ontology,
+        splits=args.splits,
+        fold=args.fold,
+        preset=args.preset,
         H=args.H,
         kappa=args.kappa,
         epochs=args.epochs,
+        steps_per_epoch=args.steps_per_epoch,
         eval_every=args.eval_every,
         patience=args.patience,
+        min_delta=args.min_delta,
         batch_size=args.batch_size,
         lr=args.lr,
         device=args.device,
-        seed=args.seed,
+        base_seed=args.seed,
         progress=print,
     )
 
