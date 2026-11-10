@@ -190,9 +190,19 @@ biohyperglow evaluate \
 
 ## Obtaining Public External Data
 
-To train on publication benchmarks:
-1. **DisGeNET**: Download disease-gene associations from the [DisGeNET downloads portal](https://www.disgenet.org/downloads).
-2. **MONDO Disease Ontology**: Download the latest OBO release from the [Monarch Initiative MONDO repository](https://github.com/monarch-initiative/mondo/releases) (e.g. `mondo.obo`).
+You can fetch the exact benchmark associations and MONDO ontology used in the manuscript using the built-in download helper:
+
+```bash
+# Fetch MONDO ontology and DisGeNET-v1 benchmark (default):
+python examples/download_data.py --dataset v1
+
+# Fetch both DisGeNET-v1 and v2 benchmarks:
+python examples/download_data.py --dataset all
+```
+
+This helper automatically downloads, formats, and verifies:
+1. **MONDO Disease Ontology**: Fetched from the [Monarch Initiative MONDO repository](https://github.com/monarch-initiative/mondo/releases) release `v2026-11-03` (`mondo.obo`, SHA-256 verified, CC BY 4.0).
+2. **DisGeNET Benchmarks**: Sourced from the verified publication baseline archives (Zenodo [10.5281/zenodo.21886712](https://doi.org/10.5281/zenodo.21886712)), formatting exactly 130,820 associations for DisGeNET-v1 and 81,746 associations for DisGeNET-v2 into ready-to-train CSVs.
 
 ---
 
