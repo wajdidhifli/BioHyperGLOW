@@ -121,14 +121,15 @@ Following peer review against the research workspace (report `reports/package_re
    - Added support for loading research split files (`splits.json`) via `load_splits_json(path)` and validation via `check_split(fold, all_edges)`.
    - Exposed `--splits`, `--fold`, and `--preset {paper,demo}` on `biohyperglow train` CLI and `train_dual_space`.
    - Fold-adjusted random seed schedule strictly adheres to the research convention: `training_seed = base_seed + 1009 * (fold - 1)`.
-   - Mini-batch negative sampling passes the exact same RNG seed to both `semantic` and `free` branches, reproducing paired mini-batch sequences. Tested by `test_paired_minibatch_stream_and_training_step_equivalence` and `test_train_dual_space_saved_splits_and_fold`.
+   - Both branch trainers receive the same fold-adjusted RNG seed. The existing reference-step test covers association-only Adam updates; the final review additionally compared both complete branch trainers with the actual research trainer on a small fixed fixture (see below).
+   - The paper preset generates ten folds by default. Declared saved-split dataset identity and fold counts are checked; checkpoints retain a selected-split fingerprint.
 
 3. **Finding 3 (P2) - Frozen Mode Parameter Freezing**:
    - Fixed parameter freeze behavior in `src/biohyperglow/model.py`: in `frozen` mode, `delta.requires_grad = False` (disease residual frozen at 0), while `theta.requires_grad = True` (gene logit remaining trainable), matching `code/model_v1.py` and Table 1 ablation definitions. Tested by `test_frozen_and_activity_mode_parameter_freezing`.
 
 4. **Finding 4 (P2) - Probability Decoding Across Dynamic Range**:
-   - Replaced artificial clipping `[-30, 30]` in `rate_to_probability` with upper-only clipping (`np.clip(arr, None, 30.0)`).
-   - Predictions and explanations now agree down to machine precision across the entire dynamic range ($p \approx 2 \times 10^{-15}$). Tested by `test_probability_consistency_across_dynamic_range`.
+   - Removed the artificial lower clipping in probability decoding. Large rates are bounded only where the decoded probability has already rounded to one.
+   - Predictions and explanations agree on the tested small, moderate and large rates, including $p \approx 2 \times 10^{-15}$. Tested by `test_probability_consistency_across_dynamic_range`.
 
 5. **Finding 5 (P2) - Setuptools Version Requirement**:
    - Raised build-backend requirement in `pyproject.toml` to `setuptools>=77.0.0` to support modern PEP 621 license string format (`license = "MIT"` and `license-files = ["LICENSE"]`).
@@ -146,8 +147,8 @@ Following peer review against the research workspace (report `reports/package_re
 | **Proposition 1** | `test_proposition1_normalized_concatenation_reconstruction` | `dual_space.normalized_path_check` | `normalized_concatenation_check` | `error <= 1e-12` |
 | **Explanation Sum** | `test_explanation_exact_additive_reconstruction` | `cancer_case_study/manuscript_analysis.py` | `explain_association` | `error < 1e-12` |
 | **Dynamic Range Consistency** | `test_probability_consistency_across_dynamic_range` | `dual_space.py` vs `explanation.py` | `intensity_to_probability` | Exact (`atol=1e-15`) |
-| **Negative Exclusions** | `test_training_negative_sampler_exclusions` | Training sampler | `sample_negative_edges` | Disjoint sets verified |
-| **Paired Stream Parity** | `test_paired_minibatch_stream_and_training_step_equivalence` | `train_single_branch` seed schedule | Dual-branch SGD step | Exact gradient/weight parity |
+| **Negative Exclusions** | `test_training_negative_sampler_exclusions` | Training sampler | `negative_pairs` | Disjoint sets verified |
+| **Reference Model Step** | `test_paired_minibatch_stream_and_training_step_equivalence` | Embedded reference module | Association-only Adam step | Exact gradient/weight parity on its fixture |
 | **Checkpoint Round-Trip** | `test_checkpoint_roundtrip_and_order_invariance` | `.npz` archive serialization | `BioHyperGLOWModel.save / load` | Exact (`atol=1e-15`) |
 
 ---
@@ -157,23 +158,31 @@ Following peer review against the research workspace (report `reports/package_re
 1. **Test Suite**:
    ```bash
    pytest -v
-   # Result: 29 passed in 0.86s on CPU
+   # Final review result: 41 passed in 0.98s on CPU, Python 3.12
    ```
 2. **Distribution Artifacts**:
    - `dist/biohyperglow-0.1.0-py3-none-any.whl`
-     - SHA-256: `b7f9005125f66ae65372dbb559743e4d05ef2f150c615769969065bba7b7724d`
+     - SHA-256: `40058f2d31fed56a22ff20d33a4592f400b5659a4a8ece3ebf5fbc6678971a42`
    - `dist/biohyperglow-0.1.0.tar.gz`
-     - SHA-256: `d48c0aa667e5c9c561a031ae39a84fb0b34975748dff107ef02f16a45d8a289f`
+     - SHA-256: `02995c2e658273d763af212d935aec10b7e721df5034a417771ae91849f3a9d2`
 3. **Twine Validation**:
    ```bash
    python -m twine check --strict dist/*
    # Result: Checking dist/biohyperglow-0.1.0-py3-none-any.whl: PASSED
    #         Checking dist/biohyperglow-0.1.0.tar.gz: PASSED
    ```
-4. **Clean Virtual Environment Verification**:
-   - Wheel installed into a fresh, isolated virtualenv outside the checkout and workspace (`/tmp/test_biohyperglow_venv`).
-   - `biohyperglow demo` executed end-to-end, trained dual-space model, produced predictions, and verified Proposition 1 explanation reconstruction error ($2.22 \times 10^{-16}$).
-   - All 29 unit tests passed against the installed wheel without `src` on the import path.
+4. **Final Installed-Wheel Verification**:
+   - Rebuilt using Python 3.12 and setuptools 80.9.0; both artifacts pass strict Twine checks.
+   - Installed the wheel without dependency resolution into a temporary virtualenv with existing scientific dependencies exposed through system site packages. This checks the installed artifact rather than a fresh dependency installation.
+   - Verified that imports resolve to the installed wheel, not this checkout. All **41 tests passed in 1.12s**, and the CLI demo passed from outside the checkout. Temporary files were removed.
+   - All 12 wheel Python modules match the release source. Source and test files in the sdist match the checkout, including the new release regression tests.
+5. **Actual Research-Trainer Comparison**:
+   - Compared the actual `optimization_study/trainer.py` with the packaged trainer using an 8-disease/12-gene, 20-edge synthetic fixture, H=4, seed 42, two epochs, two steps/epoch and batch size 8.
+   - Both semantic and free branches selected epoch 1. Maximum absolute differences in gene/disease memberships and activities were **zero** for both branches.
+   - This is a small-fixture CPU equivalence check, not a rerun of the publication benchmarks or proof across all devices and inputs. The Python 3.10/3.11 and macOS/Linux matrix remains for GitHub CI to execute.
+6. **Final Local Fixes**:
+   - Paper-preset fold count, saved-split metadata validation, fold-index bounds and split provenance are covered by focused regression tests.
+   - Current model thresholds and group labels now take precedence over historical checkpoint metadata when saving again.
 
 ---
 
@@ -200,7 +209,7 @@ git push -u origin main
    - Create an environment named `pypi`.
 
 ### Step 3: Trigger Public Release
-Create a signed git release tag:
+Create an annotated git release tag:
 ```bash
 git tag -a v0.1.0 -m "BioHyperGLOW v0.1.0 release"
 git push origin v0.1.0

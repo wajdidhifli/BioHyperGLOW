@@ -97,6 +97,27 @@ print(explanation.summary(top_k=5))
 
 ---
 
+## Reproducing a publication fold
+
+Use the original association CSV, pinned MONDO ontology and saved split JSON:
+
+```bash
+biohyperglow train --edges path/to/associations.csv --ontology path/to/mondo.obo \
+  --splits path/to/splits.json --fold 1 --preset paper --out checkpoints/fold01.npz
+```
+
+This trains one selected fold. The paper preset fixes H=512, kappa=10, Adam learning
+rate 0.003, up to 5000 epochs, 24 steps per epoch, validation every five epochs and
+patience 50. Presets take precedence over individual arguments. Use the original
+saved splits for reproduction; when no split file is provided, this preset generates
+ten folds and trains the requested fold. Other training calls retain five generated
+folds by default. Repeat the command with each fold index for a full study.
+
+Declared dataset hashes, node counts and fold counts in saved split metadata are
+validated. Checkpoints record the normalized edge hash, selected split hash, fold,
+seed and training configuration. Small synthetic examples illustrate usage; they
+do not reproduce the publication benchmark. CPU/MPS/CUDA numerical behavior can differ.
+
 ## Input Formats
 
 ### 1. Disease-Gene Association Network (`edges.csv`)

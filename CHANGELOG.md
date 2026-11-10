@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2026-11-10
 
+### Fixed before publication
+- Exclude all known positives and held-out negatives from training samples.
+- Match frozen disease-membership behavior and preserve small decoded probabilities.
+- Support saved folds and paired fold-adjusted seeds; use ten generated folds for the paper preset.
+- Reject mismatched declared split identities and record selected-split provenance.
+- Preserve updated thresholds and labels when re-saving a loaded checkpoint.
+- Require a compatible setuptools backend and test installed wheels before publishing.
+
 ### Added
 - Initial public implementation of `biohyperglow`.
 - Single-branch mixed-membership model with activity scaling and Bernoulli-Poisson link.

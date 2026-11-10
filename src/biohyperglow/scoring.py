@@ -270,13 +270,13 @@ class BioHyperGLOWModel:
         p.parent.mkdir(parents=True, exist_ok=True)
 
         meta = {
+            **self.metadata,
             "version": "0.1.0",
             "H": self.H,
             "kappa": self.kappa,
             "threshold": self.threshold,
             "group_ids": self.semantic["group_ids"],
             "group_labels": self.semantic["group_labels"],
-            **self.metadata,
         }
 
         np.savez_compressed(

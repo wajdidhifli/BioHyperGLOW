@@ -209,25 +209,43 @@ def check_split(fold: Dict[str, np.ndarray], all_edges: np.ndarray) -> None:
         raise ValueError("Validation and test negative sets must be disjoint")
 
 
-def load_splits_json(path: Union[str, Path]) -> List[Dict[str, np.ndarray]]:
-    """Load precomputed CV splits from a JSON file.
-
-    Compatible with publication split format containing 'splits' list or raw list of fold dicts.
-    """
-    p = Path(path)
-    data = json.loads(p.read_text(encoding="utf-8"))
+def _normalize_splits(
+    data: Any, expected_metadata: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, np.ndarray]]:
+    """Convert fold arrays and check any declared dataset identity before use."""
     raw_splits = data["splits"] if isinstance(data, dict) and "splits" in data else data
-    if not isinstance(raw_splits, list):
-        raise ValueError(f"Invalid split file {path}: expected a list of folds under 'splits' or root")
+    if not isinstance(raw_splits, list) or not raw_splits:
+        raise ValueError("Expected a nonempty list of folds under 'splits' or root")
+    metadata = data.get("meta", {}) if isinstance(data, dict) else {}
+    if not isinstance(metadata, dict):
+        raise ValueError("Split metadata must be a dictionary")
+    expected = {**(expected_metadata or {}), "folds": len(raw_splits)}
+    for key, value in expected.items():
+        if key in metadata and metadata[key] != value:
+            raise ValueError(f"Split metadata mismatch for {key}: expected {value!r}, got {metadata[key]!r}")
 
     converted = []
     for f in raw_splits:
+        if not isinstance(f, dict):
+            raise ValueError("Each split must be a dictionary of pair arrays")
         converted.append({
             k: np.asarray(v, dtype=np.int64).reshape(-1, 2)
             for k, v in f.items()
             if isinstance(v, (list, np.ndarray))
         })
     return converted
+
+
+def load_splits_json(
+    path: Union[str, Path], *, expected_metadata: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, np.ndarray]]:
+    """Load saved folds, validating supplied metadata when identity is known.
+
+    Accepts the publication format with 'meta' and 'splits', or a raw fold list.
+    Without metadata, pair-partition checks are still required by the trainer.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    return _normalize_splits(data, expected_metadata)
 
 
 def generate_synthetic_dataset(

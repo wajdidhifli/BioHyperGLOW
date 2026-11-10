@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import math
+import hashlib
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
@@ -10,6 +12,7 @@ import torch
 from torch import nn
 
 from biohyperglow.data import (
+    _normalize_splits,
     check_split,
     load_edges_csv,
     load_splits_json,
@@ -320,6 +323,7 @@ def train_dual_space(
     if seed is not None:
         base_seed = seed
     if preset == "paper":
+        num_folds = 10
         epochs = 5000
         steps_per_epoch = 24
         eval_every = 5
@@ -353,30 +357,21 @@ def train_dual_space(
         progress(f"Loaded {len(edges)} associations across {n_d} diseases and {n_g} genes (SHA-256: {edge_hash[:10]}...)")
 
     # Load or generate leakage-safe splits
+    expected_split_metadata = {"sha256": edge_hash, "n_d": n_d, "n_g": n_g}
     if splits is not None:
         if isinstance(splits, (str, Path)):
-            split_list = load_splits_json(splits)
-        elif isinstance(splits, dict) and "splits" in splits:
-            split_list = [
-                {k: np.asarray(v, dtype=np.int64).reshape(-1, 2) for k, v in f.items() if isinstance(v, (list, np.ndarray))}
-                for f in splits["splits"]
-            ]
-        elif isinstance(splits, list):
-            split_list = [
-                {k: np.asarray(v, dtype=np.int64).reshape(-1, 2) for k, v in f.items() if isinstance(v, (list, np.ndarray))}
-                for f in splits
-            ]
+            split_list = load_splits_json(splits, expected_metadata=expected_split_metadata)
+        elif isinstance(splits, (dict, list)):
+            split_list = _normalize_splits(splits, expected_split_metadata)
         else:
             raise ValueError(f"Unsupported splits input type: {type(splits)}")
 
-        if not (1 <= fold <= len(split_list)):
-            raise ValueError(f"Requested fold={fold}, but splits contains {len(split_list)} folds")
-        fold_data = split_list[fold - 1]
-        check_split(fold_data, edges)
     else:
         split_list = train_val_test_split(edges, n_d, n_g, seed=base_seed, folds=num_folds, val_frac=val_frac)
-        fold_data = split_list[fold - 1]
-        check_split(fold_data, edges)
+    if not (1 <= fold <= len(split_list)):
+        raise ValueError(f"Requested fold={fold}, but splits contains {len(split_list)} folds")
+    fold_data = split_list[fold - 1]
+    check_split(fold_data, edges)
 
     train_pos = fold_data["train_pos"]
     val_pos = fold_data["val_pos"]
@@ -517,9 +512,15 @@ def train_dual_space(
         "fold": fold,
         "training_seed": training_seed,
         "edges_sha256": edge_hash,
+        "split_sha256": hashlib.sha256(json.dumps(
+            {key: value.tolist() for key, value in sorted(fold_data.items())},
+            sort_keys=True, separators=(",", ":"),
+        ).encode("utf-8")).hexdigest(),
+        "folds": len(split_list),
         "preset": preset,
         "epochs": epochs,
         "steps_per_epoch": steps_per_epoch,
+        "eval_every": eval_every,
         "batch_size": batch_size,
         "patience": patience,
         "min_delta": min_delta,
