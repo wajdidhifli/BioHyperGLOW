@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "biohyperglow"
+version = "0.1.0"
+description = "Adaptive Dual-Space Embeddings for Interpretable Disease-Gene Association Prediction"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    {name = "Wajdi DHIFLI", email = "wajdi.dhifli@univ-lille.fr"},
+    {name = "Nour Elislem Karabadji", email = "n.karabadji@ensti-annaba.dz"},
+    {name = "Gautier Marcq", email = "gautier.marcq@univ-lille.fr"},
+    {name = "Mohamed Elati", email = "mohamed.elati@univ-lille.fr"},
+    {name = "Ali Assi", email = "ali.assi@rit.edu"}
+]
+keywords = [
+    "bioinformatics",
+    "computational-biology",
+    "disease-gene-prediction",
+    "link-prediction",
+    "ontology",
+    "graph-embeddings",
+    "interpretable-machine-learning",
+    "explainable-ai"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0.0",
+    "numpy>=1.23.0",
+    "scipy>=1.9.0",
+    "scikit-learn>=1.1.0",
+    "networkx>=2.8.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "build>=1.0.0",
+    "twine>=5.0.0"
+]
+
+[project.scripts]
+biohyperglow = "biohyperglow.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/wajdidhifli/BioHyperGLOW"
+Repository = "https://github.com/wajdidhifli/BioHyperGLOW"
+"Bug Tracker" = "https://github.com/wajdidhifli/BioHyperGLOW/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

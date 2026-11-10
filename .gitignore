@@ -1,0 +1,40 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.whl
+*.tar.gz
+
+# Environments
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local experiment logs, outputs, and caches
+outputs/
+logs/
+cache/
+*.log
+biohyperglow_demo/
+run_output/
+*.tmp

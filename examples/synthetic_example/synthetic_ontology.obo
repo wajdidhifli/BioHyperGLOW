@@ -1,0 +1,75 @@
+format-version: 1.2
+ontology: synthetic-mondo
+
+[Term]
+id: MONDO:0000001
+name: disease or disorder
+
+[Term]
+id: MONDO:1000001
+name: Neoplasm or neoplastic disease
+is_a: MONDO:0000001 ! disease or disorder
+
+[Term]
+id: MONDO:1000002
+name: Nervous system disorder
+is_a: MONDO:0000001 ! disease or disorder
+
+[Term]
+id: MONDO:1000003
+name: Cardiovascular disease
+is_a: MONDO:0000001 ! disease or disorder
+
+[Term]
+id: MONDO:2000001
+name: Synthetic Disease 1
+is_a: MONDO:1000001
+xref: UMLS:C0000001
+
+[Term]
+id: MONDO:2000002
+name: Synthetic Disease 2
+is_a: MONDO:1000002
+xref: UMLS:C0000002
+
+[Term]
+id: MONDO:2000003
+name: Synthetic Disease 3
+is_a: MONDO:1000003
+xref: UMLS:C0000003
+
+[Term]
+id: MONDO:2000004
+name: Synthetic Disease 4
+is_a: MONDO:1000001
+xref: UMLS:C0000004
+
+[Term]
+id: MONDO:2000005
+name: Synthetic Disease 5
+is_a: MONDO:1000002
+xref: UMLS:C0000005
+
+[Term]
+id: MONDO:2000006
+name: Synthetic Disease 6
+is_a: MONDO:1000003
+xref: UMLS:C0000006
+
+[Term]
+id: MONDO:2000007
+name: Synthetic Disease 7
+is_a: MONDO:1000001
+xref: UMLS:C0000007
+
+[Term]
+id: MONDO:2000008
+name: Synthetic Disease 8
+is_a: MONDO:1000002
+xref: UMLS:C0000008
+
+[Term]
+id: MONDO:2000009
+name: Synthetic Disease 9
+is_a: MONDO:1000003
+xref: UMLS:C0000009
